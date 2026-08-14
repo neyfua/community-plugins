@@ -21,12 +21,8 @@ credentials in `~/.config/osc/oscrc` (for example with `osc apiservice` setup
 or by copying a working `oscrc`). The plugin shells out to `osc` for every
 operation, so all authentication stays in your normal OBS configuration.
 
-## IPC
-```sh
-noctalia msg panel-toggle neyfua/obs-integration:panel
-```
+## Usage
 
-## Features
 ### My Projects
 
 The panel opens on **My Projects**: every project you maintain, plus every
@@ -79,6 +75,12 @@ The panel reopens where you left off — inside the same project or package.
 | --- | --- | --- | --- |
 | `checkout_dir` | `string` | `~/OBS` | Base directory where packages are checked out. Packages land in `<checkout_dir>/<project>/<package>`. |
 | `show_label` | `bool` | `false` | Show the "OBS" label next to the bar icon. |
+
+## IPC
+
+```sh
+noctalia msg panel-toggle neyfua/obs-integration:panel
+```
 
 ## Notes
 
