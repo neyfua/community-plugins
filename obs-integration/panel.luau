@@ -29,6 +29,7 @@ local isCheckingOut = false
 local checkoutLog = ""
 local isActionLoading = false
 local actionStatus = ""
+local runningStatus = nil
 local logSource = ""
 local loadPackageFiles
 local resolveCheckoutDir
@@ -50,6 +51,7 @@ local restoreFilesPackage = nil
 local restoreCommandLog = nil
 local restoreErrorText = nil
 local restoreLogSource = nil
+local restoreRunningStatus = nil
 local saveCache
 local saveNav
 local maybeVerify
@@ -94,12 +96,14 @@ end
 local function runActionAsync(cmd, statusText, refreshFiles, pkgDir, pkg, emptyMsg, source)
 	isActionLoading = true
 	actionStatus = statusText
+	runningStatus = statusText
 	logSource = source or ""
 	errorText = ""
 	commandLog = ""
 	render()
 	noctalia.runAsync(cmd, function(result)
 		isActionLoading = false
+		runningStatus = nil
 		if refreshFiles and result.exitCode == 0 then
 			local dir = pkgDir
 			if not dir then
@@ -432,6 +436,7 @@ local function oscCommit(pkgDir)
 	local cmd = "cd " .. shellQuote(pkgDir) .. " && osc ci"
 	isActionLoading = true
 	actionStatus = noctalia.tr("panel.committing")
+	runningStatus = actionStatus
 	logSource = ""
 	errorText = ""
 	commandLog = ""
@@ -440,6 +445,7 @@ local function oscCommit(pkgDir)
 		local output = result.stdout .. "\n" .. result.stderr
 		local hasChanges = result.exitCode == 0 and noctalia.string.trim(output) ~= ""
 		isActionLoading = false
+		runningStatus = nil
 		if hasChanges then
 			noctalia.runInTerminal(cmd)
 		else
@@ -590,23 +596,24 @@ saveNav = function()
 		commandLog = commandLog,
 		errorText = errorText,
 		logSource = logSource,
+		runningStatus = runningStatus,
 	}))
 end
 local function readNav()
 	local path = navPath()
 	if not path or not noctalia.fileExists(path) then
-		return nil, nil, false, nil, nil, nil
+		return nil, nil, false, nil, nil, nil, nil, nil
 	end
 	local data, _ = noctalia.readFile(path)
 	if not data then
-		return nil, nil, false, nil, nil, nil
+		return nil, nil, false, nil, nil, nil, nil, nil
 	end
 	local parsed, _ = noctalia.json.decode(data)
 	if type(parsed) ~= "table" then
-		return nil, nil, false, nil, nil, nil
+		return nil, nil, false, nil, nil, nil, nil, nil
 	end
 	return parsed.project, parsed.package, parsed.filesOpen == true, parsed.filesPackage, parsed.commandLog,
-		parsed.errorText, parsed.logSource
+		parsed.errorText, parsed.logSource, parsed.runningStatus
 end
 
 saveCache = function()
@@ -753,6 +760,9 @@ local function loadProjects(clearNav)
         if restoreLogSource ~= nil then
           logSource = restoreLogSource
         end
+        if restoreRunningStatus ~= nil then
+          runningStatus = restoreRunningStatus
+        end
         render()
         saveNav()
         loadRebuildArches(proj, pkg)
@@ -838,6 +848,16 @@ end
 
 function render()
 	local body = {}
+
+	if runningStatus ~= nil then
+		table.insert(
+			body,
+			ui.row({ key = "running-banner", align = "center", gap = 8, paddingV = 6 }, {
+				ui.glyph({ name = "loader", color = "primary", size = 14 }),
+				ui.label({ text = runningStatus, color = "on_surface_variant", flexGrow = 1 }),
+			})
+		)
+	end
 
 	if not noctalia.commandExists("osc") then
 		body = {
@@ -1224,7 +1244,7 @@ function render()
 			)
 
 			if logSource ~= "rebuild" then
-				if isActionLoading then
+				if isActionLoading and runningStatus == nil then
 					table.insert(
 						body,
 						ui.row({ align = "center", gap = 8 }, {
@@ -1338,7 +1358,7 @@ function render()
 		end
 
 		if logSource == "rebuild" then
-			if isActionLoading then
+			if isActionLoading and runningStatus == nil then
 				table.insert(
 					body,
 					ui.row({ align = "center", gap = 8 }, {
@@ -1597,7 +1617,7 @@ end
 function onOpen()
 	if noctalia.commandExists("osc") and noctalia.fileExists(OSC_CONFIG) then
 		restoreProject, restorePackage, restoreFilesOpen, restoreFilesPackage, restoreCommandLog, restoreErrorText,
-			restoreLogSource =
+			restoreLogSource, restoreRunningStatus =
 			readNav()
 		loadProjects()
 	else
