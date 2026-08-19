@@ -25,7 +25,6 @@ local statusMap = {}
 local savedRebuildRepo = nil
 local savedRebuildArch = nil
 local rebuildLoaded = false
-local isCheckingOut = false
 local checkoutLog = ""
 local isActionLoading = false
 local actionStatus = ""
@@ -190,14 +189,14 @@ local function checkoutPackage(project, pkg)
 	end
 	local checkoutDir = resolveCheckoutDir()
 	local pkgPath = checkoutDir .. "/" .. project .. "/" .. pkg
-	isCheckingOut = true
 	checkoutLog = noctalia.tr("panel.checking_out")
+	runningStatus = checkoutLog
 	render()
 
 	noctalia.runAsync(
 		"cd " .. shellQuote(checkoutDir) .. " && osc co " .. shellQuote(project) .. " " .. shellQuote(pkg),
 		function(result)
-			isCheckingOut = false
+			runningStatus = nil
 			if result.exitCode == 0 then
 				errorText = ""
 				loadPackageFiles(pkgPath, pkg)
@@ -528,8 +527,6 @@ local function loadPackages(project)
   removeConfirm = false
   rebuildConfirm = false
   runAllConfirm = false
-  isCheckingOut = false
-  checkoutLog = ""
   isActionLoading = false
   actionStatus = ""
   logSource = ""
@@ -649,6 +646,13 @@ local function prefetchOwnedPackages()
 			end, 15000)
 		end
 	end
+end
+
+local function refreshOwnedPackages()
+	for project in pairs(maintainerMap) do
+		maintainerMap[project] = nil
+	end
+	prefetchOwnedPackages()
 end
 
 local function readCache()
@@ -849,16 +853,6 @@ end
 function render()
 	local body = {}
 
-	if runningStatus ~= nil then
-		table.insert(
-			body,
-			ui.row({ key = "running-banner", align = "center", gap = 8, paddingV = 6 }, {
-				ui.glyph({ name = "loader", color = "primary", size = 14 }),
-				ui.label({ text = runningStatus, color = "on_surface_variant", flexGrow = 1 }),
-			})
-		)
-	end
-
 	if not noctalia.commandExists("osc") then
 		body = {
 			ui.glyph({ name = "alert-triangle", color = "error", size = 32 }),
@@ -913,7 +907,6 @@ function render()
 					rebuildConfirm = false
 					removeConfirm = false
 					runAllConfirm = false
-					isCheckingOut = false
 					checkoutLog = ""
 					isActionLoading = false
 					actionStatus = ""
@@ -932,6 +925,20 @@ function render()
 				variant = "default",
 				onClick = function()
 					loadProjects(true)
+				end,
+			})
+		)
+		table.insert(
+			headerChildren,
+			ui.button({
+				glyph = "external-link",
+				tooltip = noctalia.tr("panel.open_in_obs"),
+				variant = "default",
+				onClick = function()
+					noctalia.runAsync(
+						"xdg-open https://build.opensuse.org/package/show/"
+							.. selectedProject .. "/" .. selectedPackage
+					)
 				end,
 			})
 		)
@@ -970,39 +977,29 @@ function render()
 		)
 
 
-		if not checkedOut then
-			if isCheckingOut then
-				table.insert(
-					body,
-					ui.row({ align = "center", gap = 8 }, {
-						ui.glyph({ name = "loader", color = "primary", size = 14 }),
-						ui.label({ text = checkoutLog, color = "on_surface_variant" }),
-					})
-				)
-			else
-				table.insert(
-					body,
-					ui.button({
-						text = noctalia.tr("panel.checkout"),
-						glyph = "package-import",
-						variant = "default",
-						onClick = function()
-							checkoutPackage(selectedProject, selectedPackage)
-						end,
-					})
-				)
-				table.insert(
-					body,
-					ui.button({
-						text = noctalia.tr("panel.service_remote_run"),
-						glyph = "run",
-						variant = "default",
-						onClick = function()
-							oscServiceRemoteRun(selectedProject, selectedPackage)
-						end,
-					})
-				)
-			end
+		if not checkedOut and runningStatus == nil then
+			table.insert(
+				body,
+				ui.button({
+					text = noctalia.tr("panel.checkout"),
+					glyph = "package-import",
+					variant = "default",
+					onClick = function()
+						checkoutPackage(selectedProject, selectedPackage)
+					end,
+				})
+			)
+			table.insert(
+				body,
+				ui.button({
+					text = noctalia.tr("panel.service_remote_run"),
+					glyph = "run",
+					variant = "default",
+					onClick = function()
+						oscServiceRemoteRun(selectedProject, selectedPackage)
+					end,
+				})
+			)
 		end
 
 		if checkedOut then
@@ -1438,6 +1435,14 @@ function render()
         }),
         ui.glyph({ name = "folder-filled", color = "primary", size = 22 }),
         ui.label({ text = selectedProject, fontWeight = "bold", fontSize = 18, flexGrow = 1 }),
+        ui.button({
+          glyph = "refresh",
+          tooltip = noctalia.tr("panel.reload_packages"),
+          variant = "default",
+          onClick = function()
+            loadPackages(selectedProject)
+          end,
+        }),
       })
     )
 
@@ -1593,6 +1598,16 @@ function render()
 							end,
 						}),
 						ui.button({
+							glyph = "external-link",
+							variant = "default",
+							tooltip = noctalia.tr("panel.open_in_obs"),
+							onClick = function()
+								noctalia.runAsync(
+									"xdg-open https://build.opensuse.org/project/show/" .. name
+								)
+							end,
+						}),
+						ui.button({
 							glyph = "feather-filled",
 							variant = "default",
 							tooltip = noctalia.tr("panel.edit_project_meta"),
@@ -1607,7 +1622,19 @@ function render()
 		end
 	end
 
-	panel.render(ui.column({ flexGrow = 1, gap = 12 }, {
+	local top = {}
+	if runningStatus ~= nil and selectedPackage ~= nil then
+		table.insert(
+			top,
+			ui.row({ key = "running-banner", align = "center", gap = 8, paddingV = 6, paddingH = 12 }, {
+				ui.glyph({ name = "loader", color = "primary", size = 14 }),
+				ui.label({ text = runningStatus, color = "on_surface_variant", flexGrow = 1 }),
+			})
+		)
+	end
+
+	panel.render(ui.column({ flexGrow = 1, gap = 8 }, {
+		ui.column({ gap = 8, align = "stretch" }, top),
 		ui.scroll({ key = "scroll-" .. tostring(selectedProject) .. "-" .. tostring(selectedPackage), flexGrow = 1 }, {
 			ui.column({ gap = 10, paddingV = 6, paddingH = 12, align = "stretch" }, body),
 		}),
