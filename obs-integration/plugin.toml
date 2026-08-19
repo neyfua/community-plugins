@@ -33,4 +33,4 @@ entry = "panel.luau"
 width = 400
 height = 470
 placement = "floating"
-position = "top"
+position = "top_center"
